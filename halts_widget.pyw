@@ -37,7 +37,7 @@ class FloatingHaltWidget(QWidget):
         """)
 
         self.layout = QVBoxLayout()
-        self.title = QLabel("NASDAQ LUDP Halts")
+        self.title = QLabel("Stock Volitility Halts")
         self.title.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 8px;")
         self.layout.addWidget(self.title)
 
