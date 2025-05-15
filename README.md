@@ -4,7 +4,6 @@
 
 A floating Windows widget that displays real-time NASDAQ trading halts with LUDP reason codes, including countdown timers to estimated unhalt times.
 
-![Widget Preview](https://via.placeholder.com/300x200.png?text=Widget+Preview)
 
 ## Features
 - Real-time updates every 15 seconds
@@ -39,7 +38,7 @@ Create a new file called `halts_widget.pyw` on your Desktop and paste in the cod
 **Or** use this PowerShell command (replace URL):
 
 ```
-Invoke-WebRequest -Uri "https://example.com/halts_widget.pyw" -OutFile "$HOME\Desktop\halts_widget.pyw"
+Invoke-WebRequest -Uri "[https://github.com/Mike-Ippolito/Halts_widget/blob/main/halts_widget.pyw]" -OutFile "$HOME\Desktop\halts_widget.pyw"
 ```
 
 ### 5. Create a Desktop Shortcut
