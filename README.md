@@ -1,5 +1,4 @@
 
-```markdown
 # NASDAQ LUDP Halt Monitor Widget
 
 A floating Windows widget that displays real-time NASDAQ trading halts with LUDP reason codes, including countdown timers to estimated unhalt times.
