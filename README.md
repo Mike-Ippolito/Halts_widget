@@ -27,11 +27,11 @@ Right-click the Start menu → Select "Windows PowerShell (Admin)"
 Copy and paste this command into PowerShell:
 
 ```
-python -m pip install pyqt6 requests beautifulsoup4 pytz
+python -m pip install pyqt6 requests beautifulsoup4 pytz lxml
 ```
 
 ### 4. Download the Widget
-Create a new file called `halts_widget.pyw` on your Desktop and paste in the code from [widget_code.py](https://example.com/widget_code.py)  
+Create a new file called `halts_widget.pyw` on your Desktop and paste in the code from [widget_code.py]
 *(Replace with actual URL to your code)*
 
 **Or** use this PowerShell command (replace URL):
