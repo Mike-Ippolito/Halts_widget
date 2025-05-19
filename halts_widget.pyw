@@ -17,6 +17,7 @@ class FloatingHaltWidget(QWidget):
         super().__init__()
         self.halts = {}
         self.mouse_pos = None
+        self.last_fetch_success = True  # Track last fetch status
         self.init_ui()
         self.init_timers()
 
@@ -52,7 +53,7 @@ class FloatingHaltWidget(QWidget):
     def init_timers(self):
         self.fetch_timer = QTimer()
         self.fetch_timer.timeout.connect(self.fetch_halts)
-        self.fetch_timer.start(15000)  # 15 seconds
+        self.fetch_timer.start(10000)  # 10 seconds
 
         self.display_timer = QTimer()
         self.display_timer.timeout.connect(self.update_display)
@@ -85,7 +86,6 @@ class FloatingHaltWidget(QWidget):
 
                 if reason.text.strip().upper() != 'LUDP':
                     continue
-
                 symbol = symbol_tag.text.strip()
                 current_symbols.add(symbol)
 
@@ -106,7 +106,6 @@ class FloatingHaltWidget(QWidget):
                     # Handle existing entries
                     if symbol in self.halts:
                         existing = self.halts[symbol]
-                        
                         if res_dt == existing['resumption_time']:
                             if existing['est_unhalt'] < now:
                                 if existing['extensions'] < 2:
@@ -139,7 +138,7 @@ class FloatingHaltWidget(QWidget):
             for symbol in list(self.halts.keys()):
                 data = self.halts[symbol]
                 elapsed = now - data['est_unhalt']
-                
+
                 remove = False
                 if symbol not in current_symbols:
                     remove = True
@@ -147,12 +146,15 @@ class FloatingHaltWidget(QWidget):
                     remove = True  # 5 minutes past final extension
                 elif (now - data['last_seen']) > timedelta(minutes=30):
                     remove = True  # Stale entry
-                
+
                 if remove:
                     del self.halts[symbol]
 
+            self.last_fetch_success = True  # Set flag on success
+
         except Exception as e:
             print(f"Fetch error: {str(e)}")
+            self.last_fetch_success = False  # Set flag on failure
 
     def update_display(self):
         now = datetime.now(EST)
@@ -167,7 +169,7 @@ class FloatingHaltWidget(QWidget):
                 hours, remainder = divmod(total_seconds, 3600)
                 mins, secs = divmod(remainder, 60)
                 countdown = f"{int(hours):02}:{int(mins):02}:{int(secs):02}"
-                
+
                 if data['extensions'] >= 2:
                     color = "#FF4444"  # Red - final extension
                     countdown += " (FINAL)"
@@ -176,7 +178,10 @@ class FloatingHaltWidget(QWidget):
                 else:
                     color = "#FFFFFF"  # White - initial
             else:
-                if data['extensions'] >= 2:
+                if not self.last_fetch_success:
+                    countdown = "UPDATING..."
+                    color = "#00BFFF"  # Blue for updating
+                elif data['extensions'] >= 2:
                     countdown = "FINALIZED"
                     color = "#FF4444"
                 else:
