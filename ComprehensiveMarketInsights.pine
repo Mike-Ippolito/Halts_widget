@@ -1,0 +1,210 @@
+//@version=5
+indicator("Comprehensive Market Insights (Approximation)", shorttitle="CMI Approx", overlay=true, format=format.price, precision=2)
+
+// --- User Inputs ---
+// User-configurable settings for the indicator's components. Clear tooltips explain each input's purpose.
+
+// ATR Settings
+atrLength = input.int(14, title="ATR Length", tooltip="Average True Range period. Used for DD Bands and Risk Interval calculations. Represents expected daily volatility.")
+atrMultiplier = input.float(2.0, title="ATR Multiplier for DD Bands", tooltip="Multiplier for ATR to define the width of the DD Bands. Higher values mean wider bands.")
+
+// Resilience Settings
+indexSymbol = input.string("SPY", title="Index Symbol (for Resilience)", tooltip="Symbol for the main market index (e.g., SPY, QQQ) used in Resilience calculation.")
+componentSymbol1 = input.string("AAPL", title="Component Stock 1 Symbol", tooltip="Symbol for a major component stock of the index (e.g., AAPL).")
+componentSymbol2 = input.string("MSFT", title="Component Stock 2 Symbol", tooltip="Symbol for another major component stock (e.g., MSFT).")
+componentSymbol3 = input.string("GOOGL", title="Component Stock 3 Symbol", tooltip="Symbol for a third major component stock (e.g., GOOGL).")
+resilienceROCLength = input.int(5, title="ROC Length for Resilience", tooltip="Lookback period for Rate of Change (ROC) calculations in the Resilience component.")
+
+// Triple B Settings
+vixSymbol = input.string("VIX", title="VIX Symbol", tooltip="Symbol for the VIX index (or equivalent volatility index) used in the Triple B proxy.")
+tripleBMAFrameLength = input.int(20, title="Monthly MA Lookback for VIX (Triple B)", tooltip="Lookback period (in bars on the VIX timeframe) for the SMA of VIX. This approximates a monthly MA for the Triple B proxy.")
+
+// General Settings
+usePreviousDayCloseForDD = input.bool(true, title="Use Previous Day's Close for DD Bands Center?", tooltip="If true, DD Bands are centered around the previous day's closing price. If false, a moving average of the close is used as the center.")
+ddBandCenterMALength = input.int(10, title="MA Length for DD Band Center (if not using PD Close)", tooltip="Moving Average length for the DD Band center line, applicable only if 'Use Previous Day's Close for DD Bands Center?' is unchecked.")
+
+// --- DD Bands Calculation ---
+// The DD Bands (Derived Demand Bands) use Average True Range (ATR) as a proxy for the expected daily Risk Interval (RI).
+// These bands aim to approximate areas where the price might be considered overextended relative to recent volatility,
+// potentially indicating mean reversion opportunities or points of exhaustion.
+dailyATR = ta.atr(atrLength) // ATR is used as the core measure of the Risk Interval.
+
+ddCenterLine = if usePreviousDayCloseForDD // The center of the bands can be the previous day's close or a moving average.
+    close[1] // Previous day's close.
+else
+    ta.sma(close, ddBandCenterMALength) // Simple Moving Average of the close.
+
+upperDDBand = ddCenterLine + (atrMultiplier * dailyATR) // Upper band is ATR multiplier times above center.
+lowerDDBand = ddCenterLine - (atrMultiplier * dailyATR) // Lower band is ATR multiplier times below center.
+
+// Simplified DD Ratio Logic: This visually indicates if the current price is trading above the upper DD Band (considered 'overpriced')
+// or below the lower DD Band (considered 'underpriced') based on the ATR-derived volatility expectation.
+isOverpriced = close > upperDDBand
+isUnderpriced = close < lowerDDBand
+
+ddRatioColor = isOverpriced ? color.new(color.green, 90) : isUnderpriced ? color.new(color.red, 90) : na // Light green for overpriced, light red for underpriced.
+bgcolor(ddRatioColor, title="DD Ratio Background") // Changes background color based on the DD Ratio state.
+
+// --- Resilience Calculation ---
+// Resilience aims to proxy market strength or weakness by comparing the performance (Rate of Change - ROC)
+// of a basket of key component stocks against the performance of the broader market index.
+// A positive Resilience value suggests the components are, on average, outperforming the index,
+// which could indicate underlying strength or potential arbitrage opportunities.
+indexClose = request.security(indexSymbol, timeframe.period, close, lookahead=barmerge.lookahead_off) // Fetches index data for the current chart's timeframe. lookahead_off prevents repainting from future data.
+component1Close = request.security(componentSymbol1, timeframe.period, close, lookahead=barmerge.lookahead_off)
+component2Close = request.security(componentSymbol2, timeframe.period, close, lookahead=barmerge.lookahead_off)
+component3Close = request.security(componentSymbol3, timeframe.period, close, lookahead=barmerge.lookahead_off)
+
+indexROC = ta.roc(indexClose, resilienceROCLength) // ROC of the index.
+component1ROC = ta.roc(component1Close, resilienceROCLength) // ROC of component 1.
+component2ROC = ta.roc(component2Close, resilienceROCLength) // ROC of component 2.
+component3ROC = ta.roc(component3Close, resilienceROCLength) // ROC of component 3.
+
+// Calculate Average Stock ROC: Sums the ROC of available components and divides by the count.
+// This handles cases where one or more component symbols might be invalid or lack data, preventing script errors.
+var sumStockROC = 0.0
+var countStockROC = 0
+if not na(component1ROC) // Check if component ROC is available.
+    sumStockROC += component1ROC
+    countStockROC += 1
+if not na(component2ROC)
+    sumStockROC += component2ROC
+    countStockROC += 1
+if not na(component3ROC)
+    sumStockROC += component3ROC
+    countStockROC += 1
+
+avgStockROC = countStockROC > 0 ? sumStockROC / countStockROC : na // Avoid division by zero if no components have data.
+
+resilienceValue = avgStockROC - indexROC // Resilience is the difference between average component ROC and index ROC.
+
+// --- Triple B Calculation ---
+// The Triple B (Big Buying/Betting Barometer) proxy uses the VIX's position relative to its own longer-term moving average (SMA).
+// When VIX is above its SMA, it can signal increased market fear or volatility, often associated with market stress or downturns.
+// Conversely, VIX below its SMA might suggest complacency or lower perceived risk.
+vixClose = request.security(vixSymbol, timeframe.period, close, lookahead=barmerge.lookahead_off) // Fetches VIX data. lookahead_off is important for non-historical data.
+tripleBLevel = ta.sma(vixClose, tripleBMAFrameLength) // The Triple B level is the SMA of VIX.
+
+isVIXAboveTripleB = vixClose > tripleBLevel // VIX is above its Triple B level (bearish implication).
+isVIXBelowTripleB = vixClose < tripleBLevel // VIX is below its Triple B level (bullish implication).
+
+// --- Hedge Pressure Proxies Calculation ---
+// Hedge Pressure levels are proxied by previous period key price points (High, Low, Close).
+// These levels are often watched by traders as potential support/resistance, reflecting areas where hedging activities might have occurred.
+// Previous Day's High (PDH), Low (PDL), and Close (PDC) act as short-term daily hedge pressure levels.
+// `lookahead=barmerge.lookahead_on` is crucial here to correctly fetch historical daily/monthly data when viewed on intraday charts, preventing repainting.
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead=barmerge.lookahead_on) // Previous Day High.
+pdl = request.security(syminfo.tickerid, "D", low[1], lookahead=barmerge.lookahead_on) // Previous Day Low.
+pdc = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_on) // Previous Day Close.
+
+// Previous Month's High (PMH), Low (PML), and Close (PMC) act as longer-term monthly hedge pressure levels.
+pmh = request.security(syminfo.tickerid, "M", high[1], lookahead=barmerge.lookahead_on) // Previous Month High.
+pml = request.security(syminfo.tickerid, "M", low[1], lookahead=barmerge.lookahead_on) // Previous Month Low.
+pmc = request.security(syminfo.tickerid, "M", close[1], lookahead=barmerge.lookahead_on) // Previous Month Close.
+
+// --- Risk Interval (RI) Conditions Calculation ---
+// This component identifies potential "volatility runaway" events by checking if the current bar's high or low
+// exceeds the daily ATR (Risk Interval) added to or subtracted from the current bar's open price.
+// Such breaches can indicate a sharp increase in volatility or a strong directional move.
+anchorPrice = open // The current bar's opening price is the anchor for this calculation.
+upperRILimit = anchorPrice + dailyATR // Upper Risk Interval limit.
+lowerRILimit = anchorPrice - dailyATR // Lower Risk Interval limit.
+
+crossedUpperRI = high > upperRILimit // True if the bar's high has crossed above the upper RI limit.
+crossedLowerRI = low < lowerRILimit   // True if the bar's low has crossed below the lower RI limit.
+
+// --- Greater Market Indicators Calculation ---
+// This section synthesizes a simplified view of the broader market sentiment (Bullish, Bearish, or Neutral)
+// by combining three distinct aspects: DD Ratio, MHP (Monthly Hedge Pressure), and Monthly Trend.
+// This is an approximation and not a definitive market timing signal.
+
+// DD Ratio Aspect (Simplified): Considers the market bullish if the price is above a 20-period Simple Moving Average.
+ddSma = ta.sma(close, 20)
+isDDRatioAspectBullish = close > ddSma
+
+// MHP Aspect (Previous Month's Close): Considers the market bullish if the price is above the previous month's closing price (pmc).
+isMHPAspectBullish = close > pmc // 'pmc' is already calculated in the Hedge Pressure Proxies section.
+
+// Monthly Trend Aspect (Current Month's Open): Considers the market bullish if the price is above the current month's opening price.
+currentMonthOpen = request.security(syminfo.tickerid, "M", open[0], lookahead=barmerge.lookahead_on) // Fetches the opening price of the current month.
+isCurrentMonthTrendBullish = close > currentMonthOpen
+
+// Combine Logic for Overall Greater Market State:
+// The market is considered "Bullish" if ANY of the three aspects are bullish.
+// It's considered "Bearish" if ALL three aspects are simultaneously bearish (i.e., none are bullish).
+// Otherwise, it's "Neutral" (this state is captured by the default message in the table display if neither bullish nor bearish conditions are met).
+isGreaterMarketBullish = isDDRatioAspectBullish or isMHPAspectBullish or isCurrentMonthTrendBullish
+isGreaterMarketBearish = not isDDRatioAspectBullish and not isMHPAspectBullish and not isCurrentMonthTrendBullish
+
+
+// --- Plotting ---
+// This section is responsible for all visual elements drawn on the chart by the indicator.
+
+// --- Plotting DD Bands ---
+// The DD Bands are plotted on the main chart.
+plot(upperDDBand, title="Upper DD Band", color=color.new(color.blue, 50)) // Semi-transparent blue.
+plot(lowerDDBand, title="Lower DD Band", color=color.new(color.blue, 50))
+
+// --- Plotting Resilience ---
+// Resilience is plotted in a separate pane below the main chart.
+// The color of the Resilience plot changes based on its value relative to thresholds (+0.5 / -0.5).
+resilienceColor = resilienceValue > 0.5 ? color.new(color.green, 0) : resilienceValue < -0.5 ? color.new(color.red, 0) : color.new(color.purple, 0) // Green for strong, Red for weak, Purple for neutral.
+plot(resilienceValue, title="Resilience (Res)", color=resilienceColor, display=display.pane)
+hline(0, "Zero Line", color=color.gray, linestyle=hline.style_dashed, display=display.pane) // A zero line for reference in the Resilience pane.
+
+// --- Plotting Hedge Pressure Proxies ---
+// Daily hedge levels (PDH, PDL, PDC) are plotted as orange circles and crosses.
+plot(pdh, title="Previous Day High (PDH)", color=color.new(color.orange, 50), style=plot.style_circles, linewidth=1)
+plot(pdl, title="Previous Day Low (PDL)", color=color.new(color.orange, 50), style=plot.style_circles, linewidth=1)
+plot(pdc, title="Previous Day Close (PDC)", color=color.new(color.orange, 50), style=plot.style_cross, linewidth=1)
+
+// Monthly hedge levels (PMH, PML, PMC) are plotted as fuchsia circles and crosses with a thicker line.
+plot(pmh, title="Previous Month High (MHP)", color=color.new(color.fuchsia, 30), style=plot.style_circles, linewidth=2)
+plot(pml, title="Previous Month Low (MHP)", color=color.new(color.fuchsia, 30), style=plot.style_circles, linewidth=2)
+plot(pmc, title="Previous Month Close (MHP)", color=color.new(color.fuchsia, 30), style=plot.style_cross, linewidth=2)
+
+// --- Plotting RI Conditions ---
+// Small triangles are plotted above/below bars to indicate when the Risk Interval limits have been breached.
+// These shapes appear only on the first bar of such a breach in a sequence (e.g., `crossedUpperRI and not crossedUpperRI[1]`).
+plotshape(crossedUpperRI and not crossedUpperRI[1], title="Potential Volatility Runaway High", location=location.abovebar, color=color.red, style=shape.triangledown, size=size.tiny)
+plotshape(crossedLowerRI and not crossedLowerRI[1], title="Potential Volatility Runaway Low", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.tiny)
+
+// --- UI Display: Status Table ---
+// A table is displayed in the top-right corner of the chart to show the current status of the VIX (Triple B Proxy)
+// and the overall Greater Market Indicator. This provides a quick textual summary.
+// The table is updated only on the last (most recent) bar to optimize script performance.
+
+// VIX Status (Triple B Proxy) determination for the table:
+vixStatusMessage = "VIX: " // Base message.
+vixStatusColor = color.gray // Default color.
+if (isVIXAboveTripleB)
+    vixStatusMessage := "VIX > Triple B" // VIX is above its SMA.
+    vixStatusColor := color.red
+else if (isVIXBelowTripleB)
+    vixStatusMessage := "VIX < Triple B" // VIX is below its SMA.
+    vixStatusColor := color.green
+else
+    vixStatusMessage := "VIX ~ Triple B" // VIX is near its SMA.
+
+// Greater Market Indicator Status determination for the table:
+greaterMarketMessage = "Market: Neutral" // Default message.
+greaterMarketColor = color.gray // Default color.
+
+if (isGreaterMarketBullish)
+    greaterMarketMessage := "Market: Bullish" // Overall market is assessed as Bullish.
+    greaterMarketColor := color.green
+else if (isGreaterMarketBearish)
+    greaterMarketMessage := "Market: Bearish" // Overall market is assessed as Bearish.
+    greaterMarketColor := color.red
+// If neither explicitly bullish nor bearish (based on the combined logic), it remains "Market: Neutral".
+
+// Table creation and population:
+// `var table` ensures the table is created only once.
+// `barstate.islast` ensures the cells are updated only on the last bar.
+var table statusTable = table.new(position.top_right, 1, 2, border_width = 1) // Creates a table with 1 column and 2 rows, with a border.
+if (barstate.islast) // Update table cells only on the most recent bar to save resources.
+    table.cell(statusTable, 0, 0, vixStatusMessage, bgcolor = color.new(vixStatusColor, 70), text_color = color.white, width = 15) // VIX Status in cell (0,0).
+    table.cell(statusTable, 0, 1, greaterMarketMessage, bgcolor = color.new(greaterMarketColor, 70), text_color = color.white, width = 15) // Market Status in cell (0,1).
+
+// End of indicator logic. The placeholder for future plotting can be removed if no more plots are planned.
+// [Future plotting logic will go here] // Removed this line as all planned features are implemented.
